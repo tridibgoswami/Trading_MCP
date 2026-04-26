@@ -186,57 +186,21 @@ class AngelOneConnect:
                     price        : float = 0,
                     product_type : str  = "INTRADAY") -> dict:
         """
-        Place order — paper trade or live based on config.PAPER_TRADE
-        Returns order dict with order_id
+        This engine is for market analysis and signal tracking only.
+        Order placement is permanently disabled — no real trades are ever fired.
         """
-
-        # ── Safety check
-        if self._daily_pnl <= -config.MAX_DAILY_LOSS:
-            logger.warning(f"Daily loss limit hit ₹{config.MAX_DAILY_LOSS}. No new orders.")
-            return {"status": "BLOCKED", "reason": "daily_loss_limit"}
-
-        if config.PAPER_TRADE:
-            logger.info(
-                f"[PAPER TRADE] {action} {qty} {symbol} | "
-                f"Type: {order_type} | Price: {price}"
-            )
-            return {
-                "status":   "PAPER_SUCCESS",
-                "order_id": f"PAPER_{int(time.time())}",
-                "symbol":   symbol,
-                "action":   action,
-                "qty":      qty,
-                "price":    price,
-            }
-
-        # ── Live order
-        try:
-            order_params = {
-                "variety":         "NORMAL",
-                "tradingsymbol":   symbol,
-                "symboltoken":     token,
-                "transactiontype": action,
-                "exchange":        "NFO",
-                "ordertype":       order_type,
-                "producttype":     product_type,
-                "duration":        "DAY",
-                "price":           str(price),
-                "squareoff":       "0",
-                "stoploss":        "0",
-                "quantity":        str(qty),
-            }
-            resp = self.api.placeOrder(order_params)
-
-            if resp['status']:
-                logger.success(f"Order placed: {action} {qty} {symbol} | ID: {resp['data']['orderid']}")
-                return {"status": "SUCCESS", "order_id": resp['data']['orderid']}
-            else:
-                logger.error(f"Order failed: {resp['message']}")
-                return {"status": "FAILED", "reason": resp['message']}
-
-        except Exception as e:
-            logger.error(f"Order placement error: {e}")
-            return {"status": "ERROR", "reason": str(e)}
+        logger.info(
+            f"[ANALYSIS ONLY] Signal recorded: {action} {qty} {symbol} | "
+            f"Type: {order_type} | Price: {price} — no order placed"
+        )
+        return {
+            "status":   "ANALYSIS_ONLY",
+            "order_id": f"SIM_{int(time.time())}",
+            "symbol":   symbol,
+            "action":   action,
+            "qty":      qty,
+            "price":    price,
+        }
 
     def update_daily_pnl(self, pnl: float):
         self._daily_pnl += pnl

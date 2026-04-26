@@ -32,8 +32,7 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 TELEGRAM_TOKEN   = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# ── Trading settings
-PAPER_TRADE        = os.getenv("PAPER_TRADE", "true").lower() == "true"
+# ── Trading settings (analysis-only mode — order placement is disabled)
 MAX_RISK_PER_TRADE = float(os.getenv("MAX_RISK_PER_TRADE", 1000))
 MAX_DAILY_LOSS     = float(os.getenv("MAX_DAILY_LOSS", 3000))
 

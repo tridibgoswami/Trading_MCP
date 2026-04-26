@@ -1,0 +1,25 @@
+# Credentials — NEVER commit these
+.env
+
+# Databases — large files
+data_store/*.db
+
+# Logs
+logs/
+reports/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# OS
+.DS_Store
+Thumbs.db

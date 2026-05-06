@@ -14,6 +14,7 @@ from loguru import logger
 
 from core.market_memory import MarketMemory
 from core.rule_engine import RuleEngine
+from core.live_analyzer import LiveAnalyzer
 from intelligence.evolution_engine import EvolutionEngine
 from intelligence.pattern_discovery import PatternDiscovery
 from signal_logger import SignalLogger
@@ -27,6 +28,7 @@ rules    = RuleEngine()
 engine   = EvolutionEngine()
 sig_log  = SignalLogger()
 telegram = TelegramNotifier()
+live     = LiveAnalyzer()
 
 
 # ─────────────────────────────────────────────
@@ -179,6 +181,63 @@ async def list_tools():
             }
         ),
 
+        # ── LIVE ANALYSIS TOOLS ──────────────────────────────────────────
+
+        types.Tool(
+            name="start_live_analysis",
+            description=(
+                "Connect to AngelOne WebSocket and start real-time market analysis. "
+                "Must be called before using any other live_ tools. "
+                "Starts live price feed + indicator refresh every 60 seconds."
+            ),
+            inputSchema={"type": "object", "properties": {}}
+        ),
+
+        types.Tool(
+            name="stop_live_analysis",
+            description="Disconnect from the live feed and stop real-time analysis.",
+            inputSchema={"type": "object", "properties": {}}
+        ),
+
+        types.Tool(
+            name="get_live_market_state",
+            description=(
+                "Get a complete real-time snapshot of the market: "
+                "live price (LTP), RSI, EMAs, VWAP, MACD, Bollinger Bands, "
+                "ATR, volume ratio, market regime, trend direction, "
+                "intraday high/low, session, and recent alerts."
+            ),
+            inputSchema={"type": "object", "properties": {}}
+        ),
+
+        types.Tool(
+            name="get_live_signals",
+            description=(
+                "Get the most recent signals detected from live price action: "
+                "EMA crossovers, RSI bounces/reversals, MACD crosses, "
+                "VWAP + volume surges, Bollinger Band touches, trend confirmations."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "last_n": {
+                        "type": "integer",
+                        "default": 10,
+                        "description": "Number of most recent signals to return"
+                    }
+                }
+            }
+        ),
+
+        types.Tool(
+            name="force_refresh_analysis",
+            description=(
+                "Force an immediate indicator refresh without waiting for the "
+                "60-second cycle. Useful right after a major price move."
+            ),
+            inputSchema={"type": "object", "properties": {}}
+        ),
+
     ]
 
 
@@ -290,6 +349,49 @@ async def call_tool(name: str, arguments: dict):
             disc    = PatternDiscovery(df)
             result  = disc.analyze_signal_performance(signals_df)
             return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+
+        # ── START LIVE ANALYSIS ──────────────────────────────────────
+        elif name == "start_live_analysis":
+            ok = live.start()
+            return [types.TextContent(type="text",
+                    text=json.dumps({
+                        "status":  "started" if ok else "failed",
+                        "message": (
+                            "Real-time analysis active. "
+                            "Indicators refresh every 60 seconds. "
+                            "Use get_live_market_state to query current data."
+                        ) if ok else "Failed to connect. Check AngelOne credentials in .env"
+                    }))]
+
+        # ── STOP LIVE ANALYSIS ───────────────────────────────────────
+        elif name == "stop_live_analysis":
+            live.stop()
+            return [types.TextContent(type="text",
+                    text=json.dumps({"status": "stopped"}))]
+
+        # ── GET LIVE MARKET STATE ────────────────────────────────────
+        elif name == "get_live_market_state":
+            state = live.get_market_state()
+            return [types.TextContent(type="text",
+                    text=json.dumps(state, indent=2, default=str))]
+
+        # ── GET LIVE SIGNALS ─────────────────────────────────────────
+        elif name == "get_live_signals":
+            signals = live.get_live_signals(last_n=arguments.get("last_n", 10))
+            return [types.TextContent(type="text",
+                    text=json.dumps({
+                        "count":   len(signals),
+                        "signals": signals
+                    }, indent=2))]
+
+        # ── FORCE REFRESH ────────────────────────────────────────────
+        elif name == "force_refresh_analysis":
+            live.force_refresh()
+            return [types.TextContent(type="text",
+                    text=json.dumps({
+                        "status":  "refresh_triggered",
+                        "message": "Indicators updating now. Query get_live_market_state in ~5 seconds."
+                    }))]
 
         else:
             return [types.TextContent(type="text",

@@ -75,6 +75,24 @@ def start_mcp_server():
         logger.error(f"MCP Server error: {e}")
 
 
+def start_webhook_server():
+    """Start TradingView webhook receiver"""
+    logger.info("Starting Webhook Receiver...")
+    try:
+        from core.webhook_receiver import start as webhook_start
+        from core.live_analyzer import LiveAnalyzer
+        from core import webhook_receiver
+        import config
+
+        live = LiveAnalyzer()
+        webhook_receiver.set_live_analyzer(live)
+        webhook_start(port=config.WEBHOOK_PORT)
+        logger.success(f"Webhook receiver started on port {config.WEBHOOK_PORT} ✓")
+        logger.info(f"  TradingView webhook URL: http://<your-ip>:{config.WEBHOOK_PORT}/signal")
+    except Exception as e:
+        logger.error(f"Webhook server error: {e}")
+
+
 def start_scheduler():
     """Start the task scheduler"""
     logger.info("Starting Scheduler...")
@@ -179,6 +197,10 @@ def main():
     logger.info("\n" + "─" * 50)
     logger.info("PHASE 3: Starting Services")
     logger.info("─" * 50)
+
+    webhook_thread = threading.Thread(target=start_webhook_server, daemon=True)
+    webhook_thread.start()
+    time.sleep(1)
 
     mcp_thread = threading.Thread(target=start_mcp_server, daemon=True)
     mcp_thread.start()

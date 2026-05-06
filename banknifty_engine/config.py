@@ -36,6 +36,10 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 MAX_RISK_PER_TRADE = float(os.getenv("MAX_RISK_PER_TRADE", 1000))
 MAX_DAILY_LOSS     = float(os.getenv("MAX_DAILY_LOSS", 3000))
 
+# ── Webhook receiver (TradingView Pine Script alerts)
+WEBHOOK_PORT   = int(os.getenv("WEBHOOK_PORT", 5050))
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
+
 # ── Instrument config
 BANKNIFTY_TOKEN   = "99926009"   # AngelOne token for BankNifty Index
 BANKNIFTY_SYMBOL  = "NIFTY BANK"

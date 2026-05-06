@@ -45,6 +45,7 @@ async def list_tools():
                 "type": "object",
                 "properties": {
                     "type":           {"type": "string", "enum": ["BUY","SELL","EXIT_LONG","EXIT_SHORT"]},
+                    "indicator_name": {"type": "string", "description": "Name of your Pine Script indicator"},
                     "strength":       {"type": "number", "description": "Indicator signal value"},
                     "price":          {"type": "number"},
                     "rsi":            {"type": "number"},
@@ -61,6 +62,19 @@ async def list_tools():
                     "rule_triggered": {"type": "string"},
                 },
                 "required": ["type", "price"]
+            }
+        ),
+
+        types.Tool(
+            name="get_indicator_signals",
+            description="Query all signals logged from a specific Pine Script indicator with performance breakdown",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "indicator_name": {"type": "string", "description": "Name of the indicator to filter by"},
+                    "days":           {"type": "integer", "default": 30},
+                },
+                "required": ["indicator_name"]
             }
         ),
 
@@ -337,6 +351,34 @@ async def call_tool(name: str, arguments: dict):
             return [types.TextContent(type="text",
                     text=json.dumps({"total_candles": total,
                                      "recent_5": recent}, indent=2, default=str))]
+
+        # ── INDICATOR SIGNALS ────────────────────────────────
+        elif name == "get_indicator_signals":
+            ind_name   = arguments.get("indicator_name")
+            days       = arguments.get("days", 30)
+            signals_df = sig_log.get_signals_with_outcomes(days=days)
+            if not signals_df.empty and "indicator_name" in signals_df.columns:
+                signals_df = signals_df[signals_df["indicator_name"] == ind_name]
+            if signals_df.empty:
+                return [types.TextContent(type="text",
+                        text=json.dumps({"indicator": ind_name,
+                                         "message": "No signals found for this indicator yet."}))]
+            total   = len(signals_df)
+            wins    = len(signals_df[signals_df["outcome"] == "WIN"])
+            losses  = len(signals_df[signals_df["outcome"] == "LOSS"])
+            total_pnl = round(signals_df["pnl"].sum(), 2) if "pnl" in signals_df.columns else 0
+            recent  = signals_df.tail(10).to_dict(orient="records")
+            return [types.TextContent(type="text",
+                    text=json.dumps({
+                        "indicator":    ind_name,
+                        "period_days":  days,
+                        "total_signals": total,
+                        "wins":         wins,
+                        "losses":       losses,
+                        "win_rate_pct": round(wins / max(total, 1) * 100, 1),
+                        "total_pnl":    total_pnl,
+                        "recent_10":    recent,
+                    }, indent=2, default=str))]
 
         # ── SIGNAL PERFORMANCE ANALYSIS ──────────────────────
         elif name == "analyze_signal_performance":

@@ -59,11 +59,18 @@ class SignalLogger:
 
                 -- Metadata
                 rule_triggered   TEXT,       -- which rule fired this signal
+                indicator_name   TEXT,       -- which indicator sent this signal
                 extra_context    TEXT,       -- JSON blob
 
                 created_at       TEXT
             )
         """)
+        # Migration: add indicator_name to existing databases
+        try:
+            conn.execute("ALTER TABLE signals ADD COLUMN indicator_name TEXT")
+            conn.commit()
+        except Exception:
+            pass  # column already exists
         conn.commit()
         conn.close()
 
@@ -87,8 +94,8 @@ class SignalLogger:
                 price, rsi, ema_9, ema_21, above_vwap,
                 volume_ratio, atr, macd, macd_signal,
                 vix, regime, market_session, day_of_week, trend_direction,
-                rule_triggered, extra_context, created_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                rule_triggered, indicator_name, extra_context, created_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
             datetime.now().isoformat(),
             data['type'],
@@ -108,6 +115,7 @@ class SignalLogger:
             datetime.now().strftime('%A'),
             data.get('trend_direction'),
             data.get('rule_triggered'),
+            data.get('indicator_name'),
             json.dumps(data.get('extra', {})),
             datetime.now().isoformat()
         ))

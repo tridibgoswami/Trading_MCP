@@ -6,6 +6,7 @@
 
 import asyncio
 import json
+from datetime import datetime
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.server.models import InitializationOptions
@@ -244,6 +245,31 @@ async def list_tools():
         ),
 
         types.Tool(
+            name="get_mfe_mae_analysis",
+            description=(
+                "Analyse MFE/MAE data across all tracked BrahmAstra signals. "
+                "Shows average best and worst unrealized moves broken down by "
+                "market regime, range position (where in the 1-hour range the "
+                "entry was), session, and signal type. Use this to find which "
+                "entry contexts produce good MFE:MAE ratios vs bad ones."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "days": {
+                        "type": "integer",
+                        "default": 30,
+                        "description": "Lookback period in days"
+                    },
+                    "indicator_name": {
+                        "type": "string",
+                        "description": "Filter to a specific indicator (optional)"
+                    }
+                }
+            }
+        ),
+
+        types.Tool(
             name="force_refresh_analysis",
             description=(
                 "Force an immediate indicator refresh without waiting for the "
@@ -391,6 +417,103 @@ async def call_tool(name: str, arguments: dict):
             disc    = PatternDiscovery(df)
             result  = disc.analyze_signal_performance(signals_df)
             return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+
+        # ── MFE/MAE ANALYSIS ────────────────────────────────────────
+        elif name == "get_mfe_mae_analysis":
+            import pandas as pd
+            from datetime import timedelta
+            days  = arguments.get("days", 30)
+            ind   = arguments.get("indicator_name")
+            since = (datetime.now() - timedelta(days=days)).isoformat()
+
+            import sqlite3 as _sqlite3
+            conn = _sqlite3.connect(config.SIGNALS_DB)
+            df   = pd.read_sql(
+                "SELECT * FROM signals WHERE mfe_points IS NOT NULL AND timestamp >= ?",
+                conn, params=(since,)
+            )
+            conn.close()
+
+            if ind and "indicator_name" in df.columns:
+                df = df[df["indicator_name"] == ind]
+
+            if df.empty:
+                return [types.TextContent(type="text", text=json.dumps({
+                    "message": (
+                        "No MFE/MAE data collected yet. "
+                        "Data accumulates automatically as BrahmAstra signals arrive."
+                    )
+                }))]
+
+            def grp_stats(g):
+                avg_mfe = g["mfe_points"].mean()
+                avg_mae = g["mae_points"].mean()
+                return {
+                    "count":             len(g),
+                    "avg_mfe_pts":       round(avg_mfe, 1),
+                    "avg_mae_pts":       round(avg_mae, 1),
+                    "mfe_mae_ratio":     round(avg_mfe / max(avg_mae, 0.1), 2),
+                    "avg_mfe_time_mins": round(g["mfe_time_mins"].mean(), 1),
+                    "avg_mae_time_mins": round(g["mae_time_mins"].mean(), 1),
+                }
+
+            result = {
+                "period_days":   days,
+                "total_tracked": len(df),
+                "overall":       grp_stats(df),
+                "by_regime":     {},
+                "by_range_position_bucket": {},
+                "by_session":    {},
+                "by_signal_type": {},
+                "range_position_hypothesis": {},
+            }
+
+            # By regime
+            if "regime" in df.columns:
+                for r, g in df.groupby("regime"):
+                    result["by_regime"][r] = grp_stats(g)
+
+            # By range position bucket (the key hypothesis from the analysis)
+            if "range_position" in df.columns and df["range_position"].notna().any():
+                bins   = [0, 20, 40, 60, 80, 100]
+                labels = ["0-20_bottom", "20-40", "40-60_mid", "60-80", "80-100_top"]
+                df["_rp_bucket"] = pd.cut(
+                    df["range_position"], bins=bins, labels=labels
+                )
+                for b, g in df.groupby("_rp_bucket"):
+                    result["by_range_position_bucket"][str(b)] = grp_stats(g)
+
+                # Direct test of the hypothesis: top/bottom 20% vs middle 60%
+                extreme = df[
+                    (df["range_position"] <= 20) | (df["range_position"] >= 80)
+                ]
+                middle  = df[
+                    (df["range_position"] > 20) & (df["range_position"] < 80)
+                ]
+                result["range_position_hypothesis"] = {
+                    "extreme_entries_top_bottom_20pct": grp_stats(extreme) if len(extreme) > 0 else {},
+                    "middle_entries_20_80pct":          grp_stats(middle)  if len(middle)  > 0 else {},
+                    "verdict": (
+                        "Extreme entries have WORSE MFE:MAE — range-position filter supported"
+                        if (len(extreme) > 0 and len(middle) > 0 and
+                            extreme["mfe_points"].mean() / max(extreme["mae_points"].mean(), 0.1) <
+                            middle["mfe_points"].mean()  / max(middle["mae_points"].mean(), 0.1))
+                        else "Not enough data yet or hypothesis not confirmed"
+                    )
+                }
+
+            # By session
+            if "market_session" in df.columns:
+                for s, g in df.groupby("market_session"):
+                    result["by_session"][s] = grp_stats(g)
+
+            # By signal type
+            if "signal_type" in df.columns:
+                for t_, g in df.groupby("signal_type"):
+                    result["by_signal_type"][t_] = grp_stats(g)
+
+            return [types.TextContent(type="text",
+                    text=json.dumps(result, indent=2, default=str))]
 
         # ── START LIVE ANALYSIS ──────────────────────────────────────
         elif name == "start_live_analysis":

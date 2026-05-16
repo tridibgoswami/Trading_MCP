@@ -33,18 +33,26 @@ from loguru import logger
 
 from signal_logger import SignalLogger
 from telegram_notifier import TelegramNotifier
+from core.mfe_mae_logger import MFEMAELogger
 import config
 
-app      = Flask(__name__)
-sig_log  = SignalLogger()
-telegram = TelegramNotifier()
+app       = Flask(__name__)
+sig_log   = SignalLogger()
+telegram  = TelegramNotifier()
+mfe_logger = MFEMAELogger()
 
-# Optional reference to LiveAnalyzer — set from start_engine.py
+# Optional references injected from start_engine.py
 _live_analyzer = None
 
 def set_live_analyzer(analyzer):
     global _live_analyzer
     _live_analyzer = analyzer
+
+def set_angel(angel):
+    """Share the already-logged-in AngelOne instance with the MFE/MAE logger."""
+    from core import mfe_mae_logger as _mod
+    _mod.set_angel(angel)
+    mfe_logger._angel = angel  # also set directly for immediate use
 
 
 # ─────────────────────────────────────────────
@@ -123,6 +131,13 @@ def receive_signal():
         # ── Log the signal
         signal_id = sig_log.log_signal(signal)
 
+        # ── Start MFE/MAE tracking immediately
+        mfe_logger.start_tracking(
+            signal_id   = signal_id,
+            signal_type = signal_type,
+            entry_price = float(price),
+        )
+
         # ── Telegram alert
         telegram.signal_alert(
             signal_type = signal_type,
@@ -193,8 +208,13 @@ def receive_outcome():
             if incoming != config.WEBHOOK_SECRET:
                 return jsonify({"error": "unauthorized"}), 401
 
+        sid = int(data["signal_id"])
+
+        # Stop MFE/MAE tracker so it finalises immediately
+        mfe_logger.stop_tracking(sid)
+
         result = sig_log.update_outcome(
-            signal_id    = int(data["signal_id"]),
+            signal_id    = sid,
             entry_price  = float(data["entry_price"]),
             exit_price   = float(data["exit_price"]),
             holding_mins = int(data["holding_mins"]),

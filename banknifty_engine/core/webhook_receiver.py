@@ -107,7 +107,8 @@ def receive_signal():
         signal = {
             "type":             signal_type,
             "price":            float(price),
-            "indicator_name":   data.get("indicator", "pine_script"),
+            "indicator_name":   data.get("indicator", "BrahmAstra"),
+            "signal_name":      data.get("signal_name") or data.get("signal", ""),
             "strength":         _safe_float(data.get("strength")),
             "rsi":              _safe_float(data.get("rsi")),
             "ema_9":            _safe_float(data.get("ema_9")),

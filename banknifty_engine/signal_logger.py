@@ -60,17 +60,18 @@ class SignalLogger:
                 -- Metadata
                 rule_triggered   TEXT,       -- which rule fired this signal
                 indicator_name   TEXT,       -- which indicator sent this signal
+                signal_name      TEXT,       -- specific BrahmAstra signal (e.g. S1_BUY, TREND_SELL)
                 extra_context    TEXT,       -- JSON blob
 
                 created_at       TEXT
             )
         """)
-        # Migration: add indicator_name to existing databases
-        try:
-            conn.execute("ALTER TABLE signals ADD COLUMN indicator_name TEXT")
-            conn.commit()
-        except Exception:
-            pass  # column already exists
+        for col in ["indicator_name TEXT", "signal_name TEXT"]:
+            try:
+                conn.execute(f"ALTER TABLE signals ADD COLUMN {col}")
+                conn.commit()
+            except Exception:
+                pass  # column already exists
         conn.commit()
         conn.close()
 
@@ -94,8 +95,8 @@ class SignalLogger:
                 price, rsi, ema_9, ema_21, above_vwap,
                 volume_ratio, atr, macd, macd_signal,
                 vix, regime, market_session, day_of_week, trend_direction,
-                rule_triggered, indicator_name, extra_context, created_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                rule_triggered, indicator_name, signal_name, extra_context, created_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
             datetime.now().isoformat(),
             data['type'],
@@ -116,6 +117,7 @@ class SignalLogger:
             data.get('trend_direction'),
             data.get('rule_triggered'),
             data.get('indicator_name'),
+            data.get('signal_name'),
             json.dumps(data.get('extra', {})),
             datetime.now().isoformat()
         ))

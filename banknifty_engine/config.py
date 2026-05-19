@@ -45,6 +45,15 @@ BANKNIFTY_TOKEN   = "99926009"   # AngelOne token for BankNifty Index
 BANKNIFTY_SYMBOL  = "NIFTY BANK"
 EXCHANGE          = "NSE"
 
+# ── Multi-timeframe settings
+TIMEFRAMES = {
+    "3min":  "THREE_MINUTE",
+    "5min":  "FIVE_MINUTE",
+    "15min": "FIFTEEN_MINUTE",
+}
+PRIMARY_TF = "5min"    # entry signals are on this timeframe
+HTF        = "15min"   # higher timeframe trend filter
+
 # ── Market hours (IST)
 MARKET_OPEN_H,  MARKET_OPEN_M  = 9,  15
 MARKET_CLOSE_H, MARKET_CLOSE_M = 15, 30

@@ -58,6 +58,9 @@ class LiveAnalyzer:
             "volume_ratio":    None,
             "regime":          "UNKNOWN",
             "trend":           "NEUTRAL",
+            "htf_trend":       "UNKNOWN",   # 15-min higher timeframe trend
+            "htf_regime":      "UNKNOWN",   # 15-min regime
+            "brahmAstra_bias": "NEUTRAL",   # combined HTF bias for BrahmAstra filter
             "above_vwap":      None,
             "market_session":  None,
             "candles_loaded":  0,
@@ -229,6 +232,7 @@ class LiveAnalyzer:
                     "trend":        self._trend_label(latest),
                     "above_vwap":   bool(ltp > (self._f(latest.get("vwap")) or 0)),
                     "candles_loaded": len(df),
+                    **self._htf_state(),   # inject 15-min trend fields
                 })
 
                 if self._state["prev_close"]:
@@ -427,6 +431,23 @@ class LiveAnalyzer:
             return None if (np.isnan(f) or np.isinf(f)) else round(f, 4)
         except Exception:
             return default
+
+    def _htf_state(self) -> dict:
+        """
+        Fetch 15-min trend from market memory and derive BrahmAstra bias.
+        brahmAstra_bias: LONG_ONLY | SHORT_ONLY | NEUTRAL | AVOID
+        """
+        try:
+            htf    = self.memory.get_htf_trend()
+            trend  = htf.get("trend", "UNKNOWN")
+            regime = htf.get("regime", "UNKNOWN")
+            if trend in ("STRONG_UP", "UP"):       bias = "LONG_ONLY"
+            elif trend in ("STRONG_DOWN", "DOWN"): bias = "SHORT_ONLY"
+            elif regime == "VOLATILE":             bias = "AVOID"
+            else:                                  bias = "NEUTRAL"
+            return {"htf_trend": trend, "htf_regime": regime, "brahmAstra_bias": bias}
+        except Exception:
+            return {"htf_trend": "UNKNOWN", "htf_regime": "UNKNOWN", "brahmAstra_bias": "NEUTRAL"}
 
     def _trend_label(self, row) -> str:
         e9  = self._f(row.get("ema_9"))

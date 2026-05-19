@@ -22,6 +22,50 @@ class MarketMemory:
 
     def _init_db(self):
         conn = sqlite3.connect(self.db_path)
+        # Create tables for each timeframe — same schema, separate tables
+        for tf in ("candles_3min", "candles_5min", "candles_15min"):
+            conn.execute(f"""
+                CREATE TABLE IF NOT EXISTS {tf} (
+                    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp        TEXT UNIQUE,
+                    open             REAL,
+                    high             REAL,
+                    low              REAL,
+                    close            REAL,
+                    volume           REAL,
+                    candle_body      REAL,
+                    candle_range     REAL,
+                    body_ratio       REAL,
+                    direction        TEXT,
+                    rsi_14           REAL,
+                    ema_9            REAL,
+                    ema_21           REAL,
+                    ema_50           REAL,
+                    vwap             REAL,
+                    atr_14           REAL,
+                    volume_sma20     REAL,
+                    volume_ratio     REAL,
+                    macd             REAL,
+                    macd_signal      REAL,
+                    bb_upper         REAL,
+                    bb_lower         REAL,
+                    bb_mid           REAL,
+                    swing_high       INTEGER DEFAULT 0,
+                    swing_low        INTEGER DEFAULT 0,
+                    higher_high      INTEGER DEFAULT 0,
+                    lower_low        INTEGER DEFAULT 0,
+                    inside_bar       INTEGER DEFAULT 0,
+                    market_session   TEXT,
+                    day_of_week      TEXT,
+                    week_number      INTEGER,
+                    regime           TEXT,
+                    next_5_move      REAL,
+                    next_10_move     REAL,
+                    next_20_move     REAL,
+                    ingested_at      TEXT
+                )
+            """)
+        # Keep original candles table for backward compatibility (maps to 5min)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS candles (
                 id               INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -82,7 +126,7 @@ class MarketMemory:
     # ─────────────────────────────────────────
     # INGEST CANDLES
     # ─────────────────────────────────────────
-    def ingest_candles(self, df: pd.DataFrame) -> int:
+    def ingest_candles(self, df: pd.DataFrame, timeframe: str = "5min") -> int:
         """
         Feed OHLCV DataFrame into memory.
         Automatically computes all indicators & context.
@@ -160,51 +204,100 @@ class MarketMemory:
         df['ingested_at'] = datetime.now().isoformat()
         df['timestamp']   = df['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
 
-        # ── Write to DB (ignore duplicates)
+        # ── Route to correct table based on timeframe
+        tf_map   = {"3min": "candles_3min", "5min": "candles_5min", "15min": "candles_15min"}
+        table    = tf_map.get(timeframe, "candles_5min")
+
         conn     = sqlite3.connect(self.db_path)
         inserted = 0
+        sql = f"""
+            INSERT OR IGNORE INTO {table} (
+                timestamp, open, high, low, close, volume,
+                candle_body, candle_range, body_ratio, direction,
+                rsi_14, ema_9, ema_21, ema_50, vwap, atr_14,
+                volume_sma20, volume_ratio, macd, macd_signal,
+                bb_upper, bb_lower, bb_mid,
+                swing_high, swing_low, higher_high, lower_low, inside_bar,
+                market_session, day_of_week, week_number, regime,
+                next_5_move, next_10_move, next_20_move, ingested_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """
+        # Also mirror 5min data into legacy candles table for backward compatibility
+        sql_legacy = sql.replace(f"INTO {table}", "INTO candles") if table == "candles_5min" else None
+
         for _, row in df.iterrows():
+            params = (
+                row['timestamp'], row['open'], row['high'], row['low'],
+                row['close'], row['volume'],
+                row.get('candle_body'),   row.get('candle_range'),
+                row.get('body_ratio'),    row.get('direction'),
+                row.get('rsi_14'),        row.get('ema_9'),
+                row.get('ema_21'),        row.get('ema_50'),
+                row.get('vwap'),          row.get('atr_14'),
+                row.get('volume_sma20'),  row.get('volume_ratio'),
+                row.get('macd'),          row.get('macd_signal'),
+                row.get('bb_upper'),      row.get('bb_lower'),
+                row.get('bb_mid'),
+                row.get('swing_high', 0), row.get('swing_low', 0),
+                row.get('higher_high', 0),row.get('lower_low', 0),
+                row.get('inside_bar', 0),
+                row.get('market_session'),row.get('day_of_week'),
+                row.get('week_number'),   row.get('regime'),
+                row.get('next_5_move'),   row.get('next_10_move'),
+                row.get('next_20_move'),  row.get('ingested_at')
+            )
             try:
-                conn.execute("""
-                    INSERT OR IGNORE INTO candles (
-                        timestamp, open, high, low, close, volume,
-                        candle_body, candle_range, body_ratio, direction,
-                        rsi_14, ema_9, ema_21, ema_50, vwap, atr_14,
-                        volume_sma20, volume_ratio, macd, macd_signal,
-                        bb_upper, bb_lower, bb_mid,
-                        swing_high, swing_low, higher_high, lower_low, inside_bar,
-                        market_session, day_of_week, week_number, regime,
-                        next_5_move, next_10_move, next_20_move, ingested_at
-                    ) VALUES (
-                        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
-                    )
-                """, (
-                    row['timestamp'], row['open'], row['high'], row['low'],
-                    row['close'], row['volume'],
-                    row.get('candle_body'),  row.get('candle_range'),
-                    row.get('body_ratio'),   row.get('direction'),
-                    row.get('rsi_14'),       row.get('ema_9'),
-                    row.get('ema_21'),       row.get('ema_50'),
-                    row.get('vwap'),         row.get('atr_14'),
-                    row.get('volume_sma20'), row.get('volume_ratio'),
-                    row.get('macd'),         row.get('macd_signal'),
-                    row.get('bb_upper'),     row.get('bb_lower'),
-                    row.get('bb_mid'),
-                    row.get('swing_high',0), row.get('swing_low',0),
-                    row.get('higher_high',0),row.get('lower_low',0),
-                    row.get('inside_bar',0),
-                    row.get('market_session'),row.get('day_of_week'),
-                    row.get('week_number'),   row.get('regime'),
-                    row.get('next_5_move'),  row.get('next_10_move'),
-                    row.get('next_20_move'), row.get('ingested_at')
-                ))
+                conn.execute(sql, params)
                 inserted += 1
             except Exception as e:
-                logger.debug(f"Row insert skipped: {e}")
+                logger.debug(f"Row insert skipped ({table}): {e}")
+            if sql_legacy:
+                try:
+                    conn.execute(sql_legacy, params)
+                except Exception:
+                    pass
         conn.commit()
         conn.close()
-        logger.info(f"MarketMemory: {inserted} new candles ingested")
+        logger.info(f"MarketMemory [{timeframe}]: {inserted} new candles ingested → {table}")
         return inserted
+
+    def get_memory_tf(self, timeframe: str = "5min", days: int = 14) -> pd.DataFrame:
+        """Retrieve last N days from a specific timeframe table."""
+        tf_map = {"3min": "candles_3min", "5min": "candles_5min", "15min": "candles_15min"}
+        table  = tf_map.get(timeframe, "candles_5min")
+        since  = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
+        conn   = sqlite3.connect(self.db_path)
+        df     = pd.read_sql(
+            f"SELECT * FROM {table} WHERE timestamp >= ? AND next_10_move IS NOT NULL ORDER BY timestamp",
+            conn, params=(since,)
+        )
+        conn.close()
+        return df
+
+    def get_htf_trend(self) -> dict:
+        """
+        Return the current higher-timeframe (15-min) trend direction.
+        Used by the live analyzer to filter BrahmAstra signals.
+        """
+        conn = sqlite3.connect(self.db_path)
+        df   = pd.read_sql(
+            "SELECT ema_9, ema_21, ema_50, regime, close FROM candles_15min ORDER BY timestamp DESC LIMIT 3",
+            conn
+        )
+        conn.close()
+        if df.empty:
+            return {"trend": "UNKNOWN", "regime": "UNKNOWN"}
+        row = df.iloc[0]
+        e9, e21, e50 = row.get("ema_9"), row.get("ema_21"), row.get("ema_50")
+        if all(v and not pd.isna(v) for v in [e9, e21, e50]):
+            if e9 > e21 > e50:   trend = "STRONG_UP"
+            elif e9 > e21:       trend = "UP"
+            elif e9 < e21 < e50: trend = "STRONG_DOWN"
+            elif e9 < e21:       trend = "DOWN"
+            else:                trend = "NEUTRAL"
+        else:
+            trend = "UNKNOWN"
+        return {"trend": trend, "regime": str(row.get("regime", "UNKNOWN"))}
 
     # ─────────────────────────────────────────
     # RETRIEVE

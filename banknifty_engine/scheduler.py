@@ -110,33 +110,35 @@ class TradingScheduler:
             self.telegram.error_alert("❌ AngelOne login failed! Check credentials.")
 
     def ingest_candles(self):
-        """Fetch and store latest 5-min candles"""
+        """Fetch and store latest candles for all three timeframes."""
         try:
             if not self.angel.is_connected:
                 self.angel.login()
-            df = self.angel.get_historical_data(interval="FIVE_MINUTE", days=2)
-            if not df.empty:
-                new = self.memory.ingest_candles(df)
-                if new > 0:
-                    logger.debug(f"Ingested {new} new candles")
+            for tf_key, tf_api in [("3min", "THREE_MINUTE"), ("5min", "FIVE_MINUTE"), ("15min", "FIFTEEN_MINUTE")]:
+                df = self.angel.get_historical_data(interval=tf_api, days=2)
+                if not df.empty:
+                    new = self.memory.ingest_candles(df, timeframe=tf_key)
+                    if new > 0:
+                        logger.debug(f"Ingested {new} new {tf_key} candles")
         except Exception as e:
             logger.error(f"Candle ingestion error: {e}")
 
     def eod_ingest(self):
-        """End of day — fetch full day data at multiple timeframes"""
+        """End of day — fetch full history for all three timeframes."""
         logger.info("📊 EOD data ingestion starting...")
         try:
             if not self.angel.is_connected:
                 self.angel.login()
-            # Fetch 5-min data for today
-            df5  = self.angel.get_historical_data(interval="FIVE_MINUTE", days=3)
-            if not df5.empty:
-                self.memory.ingest_candles(df5)
-            # Also fetch 15-min for better patterns
-            df15 = self.angel.get_historical_data(interval="FIFTEEN_MINUTE", days=14)
-            if not df15.empty:
-                self.memory.ingest_candles(df15)
-            logger.success("EOD ingestion complete")
+            ingests = [
+                ("3min",  "THREE_MINUTE",   3),
+                ("5min",  "FIVE_MINUTE",    3),
+                ("15min", "FIFTEEN_MINUTE", 30),
+            ]
+            for tf_key, tf_api, days in ingests:
+                df = self.angel.get_historical_data(interval=tf_api, days=days)
+                if not df.empty:
+                    self.memory.ingest_candles(df, timeframe=tf_key)
+            logger.success("EOD ingestion complete — all timeframes updated")
         except Exception as e:
             logger.error(f"EOD ingestion error: {e}")
             self.telegram.error_alert(f"EOD ingest failed: {e}")
